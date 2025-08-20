@@ -62,7 +62,7 @@ deploy:
 	  --image gcr.io/$$GOOGLE_CLOUD_PROJECT/$(PROJECT_NAME)-frontend \
 	  --platform managed \
 	  --allow-unauthenticated \
-	  --min-instances=0 --max-instances=2 --memory=512Mi --cpu=1 --port=80
+	  --min-instances=0 --max-instances=2 --memory=512Mi --cpu=1 --port=8080
 
 ## Run migrations on Cloud SQL instance
 migrate-cloud:

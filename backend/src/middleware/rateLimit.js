@@ -7,6 +7,10 @@ const apiLimiter = rateLimit({
   max: 100,
   standardHeaders: true, // Return rate limit info in headers
   legacyHeaders: false,
+  // Use req.ip which respects Express trust proxy settings
+  keyGenerator: (req /*, res*/) => req.ip,
+  // Skip health endpoints so they are never rate limited
+  skip: (req) => req.path === '/healthz' || req.path === '/readyz'
 });
 
 export default apiLimiter;
