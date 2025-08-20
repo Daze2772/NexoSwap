@@ -14,6 +14,7 @@ help:
 	@echo "  frontend/dev     - Start frontend dev server"
 	@echo "  frontend/build   - Build frontend for production"
 	@echo "  deploy           - Deploy both services to Cloud Run"
+	@echo "  migrate-cloud    - Run migrations on Cloud SQL instance"
 
 ## Backend targets
 backend/dev:
@@ -53,7 +54,8 @@ deploy:
 	  --platform managed \
 	  --allow-unauthenticated \
 	  --set-env-vars DATABASE_URL=$$DATABASE_URL,JWT_SECRET=$$JWT_SECRET,ADMIN_EMAIL=$$ADMIN_EMAIL,PROVIDER_KEYS_*=$$PROVIDER_KEYS_*,FX_SOURCE=$$FX_SOURCE,SANCTIONS_ENABLED=$$SANCTIONS_ENABLED \
-	  --min-instances=0 --max-instances=2 --memory=512Mi --cpu=1 --port=8080
+	  --min-instances=0 --max-instances=2 --memory=512Mi --cpu=1 --port=8080 \
+	  --add-cloudsql-instances=$$CLOUD_SQL_INSTANCE
 	# Deploy frontend
 	gcloud run deploy $(PROJECT_NAME)-frontend \
 	  --region $(REGION) \
@@ -61,3 +63,15 @@ deploy:
 	  --platform managed \
 	  --allow-unauthenticated \
 	  --min-instances=0 --max-instances=2 --memory=512Mi --cpu=1 --port=80
+
+## Run migrations on Cloud SQL instance
+migrate-cloud:
+	@echo "Running migrations on Cloud SQL instance..."
+	@echo "Make sure you have the Cloud SQL Auth proxy running or are connected via gcloud"
+	cd backend && npm install && DATABASE_URL=$$DATABASE_URL npx knex migrate:latest
+
+## Seed Cloud SQL instance
+seed-cloud:
+	@echo "Seeding Cloud SQL instance..."
+	@echo "Make sure you have the Cloud SQL Auth proxy running or are connected via gcloud"
+	cd backend && npm install && DATABASE_URL=$$DATABASE_URL npx knex seed:run
