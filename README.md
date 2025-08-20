@@ -81,7 +81,16 @@ The `Makefile` contains a `deploy` target that builds Docker images, pushes them
 
 1. **Create a Cloud SQL (PostgreSQL) instance** and database.  Enable the Cloud SQL Admin API and grant the service account `Cloud SQL Client` and `Cloud SQL Instance User` roles【997390149165618†L52-L66】.  Note the instance connection name (e.g. `project:region:instance`).
 2. **Enable Google Cloud Run** in your project and ensure you have billing enabled.  Authenticate with `gcloud init` and set your project with `gcloud config set project <your‑project>`.
-3. **Configure environment variables** in the deployment command.  For production you should generate strong `JWT_SECRET` and provide your `DATABASE_URL` in Cloud SQL connector format: `postgresql://<user>:<password>@/<db>?host=/cloudsql/<instance_connection_name>`.
+3. **Configure environment variables** in the deployment command. Required envs:
+   - `DATABASE_URL` (Cloud SQL socket format)
+   - `JWT_SECRET`
+   - `ADMIN_EMAIL`
+   - `SANCTIONS_ENABLED` (e.g., `true`)
+   
+   Example `DATABASE_URL`:
+   `postgresql://appuser:HEXPASS@/nexoswap?host=/cloudsql/PROJECT:REGION:nexoswap-pg`
+   
+   Use a URL‑safe (hex) DB password, or URL‑encode special characters.
 
 Deploy both services with one command:
 
@@ -95,7 +104,48 @@ export SANCTIONS_ENABLED=true
 make deploy
 ```
 
-The deploy script builds images, pushes them to `gcr.io/<project>`, and calls `gcloud run deploy` with appropriate parameters (`MIN_INSTANCES=0`, `MAX_INSTANCES=2`, `CPU=1`, `MEM=512Mi`, `HTTP2=true` as per specification).  Adjust the region via the `REGION` variable in `Makefile`.
+The deploy script builds images, pushes them to `gcr.io/<project>`, and calls `gcloud run deploy` with appropriate parameters. Adjust the region via the `REGION` variable in `Makefile`.
+
+### Frontend build-time API base
+
+The frontend reads `VITE_API_BASE` at build time. When building the image via Cloud Build, pass `_VITE_API_BASE` and forward it as a build arg:
+
+```bash
+gcloud builds submit --config frontend/cloudbuild.yaml --substitutions _IMAGE=gcr.io/$GOOGLE_CLOUD_PROJECT/nexoswap-frontend,_VITE_API_BASE=$API_BASE_URL
+```
+
+Alternatively, locally:
+
+```bash
+docker build -t gcr.io/$GOOGLE_CLOUD_PROJECT/nexoswap-frontend frontend \
+  --build-arg VITE_API_BASE=$API_BASE_URL
+```
+
+### Cloud Run Jobs for migrations and seed
+
+Ensure migrations and seeds run non‑interactively and exit non‑zero on failure:
+
+```bash
+gcloud run jobs create nexoswap-migrate --image gcr.io/$GOOGLE_CLOUD_PROJECT/nexoswap-backend \
+  --region $REGION \
+  --set-env-vars DATABASE_URL=$DATABASE_URL \
+  --command "npx",--args "knex,migrate:latest"
+
+gcloud run jobs create nexoswap-seed --image gcr.io/$GOOGLE_CLOUD_PROJECT/nexoswap-backend \
+  --region $REGION \
+  --set-env-vars DATABASE_URL=$DATABASE_URL,ADMIN_EMAIL=$ADMIN_EMAIL \
+  --command "npx",--args "knex,seed:run"
+
+gcloud run jobs execute nexoswap-migrate --region $REGION
+gcloud run jobs execute nexoswap-seed --region $REGION
+```
+
+### Verifying health
+
+```bash
+curl $API_URL/healthz
+curl $API_URL/readyz
+```
 
 ## Decisions & Assumptions
 

@@ -14,9 +14,9 @@ dotenv.config();
 
 const app = express();
 
-// Trust proxy configuration for Cloud Run
+// Trust proxy configuration for Cloud Run (1 hop)
 // Cloud Run sets X-Forwarded-For, X-Forwarded-Proto, etc.
-app.set("trust proxy", true);
+app.set('trust proxy', 1);
 
 // Expose db via app locals for controllers that require direct access (not recommended but convenient here)
 app.locals.db = db;
@@ -24,9 +24,12 @@ app.locals.db = db;
 // Security middleware
 app.use(helmet());
 
-// Enable CORS with allowlist from env
-const corsOrigins = (process.env.CORS_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean);
-app.use(cors({ origin: corsOrigins.length ? corsOrigins : '*', credentials: true }));
+// Enable CORS with frontend origin from env (default to open for MVP)
+const corsOrigin = process.env.CORS_ORIGIN || '*';
+app.use(cors({ 
+  origin: corsOrigin === '*' ? true : corsOrigin, 
+  credentials: corsOrigin === '*' ? false : true 
+}));
 
 // Logging
 app.use(morgan('combined'));
@@ -35,6 +38,21 @@ app.use(morgan('combined'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Health endpoints (no auth, no rate limit)
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok' }));
+app.get('/readyz', async (req, res) => {
+  try {
+    if (db.raw) {
+      await db.raw('select 1');
+    } else if (db.query) {
+      await db.query('select 1');
+    }
+    return res.status(200).json({ ready: true });
+  } catch (e) {
+    return res.status(500).json({ ready: false });
+  }
+});
+
 // Rate limiter for all requests (basic)
 app.use(apiLimiter);
 
@@ -42,38 +60,6 @@ app.use(apiLimiter);
 app.use('/auth', authRoutes);
 app.use('/trades', tradeRoutes);
 app.use('/admin', adminRoutes);
-
-// Health endpoints
-app.get('/healthz', (req, res) => res.json({ status: 'ok' }));
-app.get('/readyz', async (req, res) => {
-  try {
-    // Check database connection
-    await db.raw('SELECT 1');
-    
-    // Check if migrations have been run by looking for a key table
-    const tables = await db.raw(`
-      SELECT table_name 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public' 
-      AND table_name IN ('users', 'trades')
-    `);
-    
-    if (tables.rows.length < 2) {
-      return res.status(503).json({ 
-        ready: false, 
-        message: 'Database migrations not completed' 
-      });
-    }
-    
-    res.json({ ready: true });
-  } catch (err) {
-    console.error('Readyz check failed:', err);
-    res.status(500).json({ 
-      ready: false, 
-      error: err.message 
-    });
-  }
-});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
